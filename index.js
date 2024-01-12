@@ -42,6 +42,8 @@ async function run() {
     const userCollaction = client.db('VictoriancDB').collection('users');
     const bookingsCollaction = client.db('VictoriancDB').collection('bookings');
     const paymentsCollaction = client.db('VictoriancDB').collection('payments');
+    const advartigementCollaction = client.db('VictoriancDB').collection('advImg');
+    const contestCreatorCollaction = client.db('VictoriancDB').collection('contestCreator');
     
 
     // -------------------------------
@@ -84,6 +86,17 @@ async function run() {
       next();
     }
 
+    const verifyCreator = async (req, res, next) => {
+      const email = req.decoded.email;
+      const query = { email: email };
+      const user = await userCollaction.findOne(query);
+      const isCreator = user?.role === 'creator';
+      if (!isCreator) {
+        return res.status(403).send({ message: 'forbidden access' });
+      }
+      next();
+    }
+
 
 
 
@@ -95,10 +108,61 @@ async function run() {
 
 
 
+    // get admin for admin routs secure
+    app.get('/getAdmin/:email', verifyToken, async(req, res) => {
+      const email = req.params.email;
+
+      if (email !== req.decoded.email) {
+        return res.status(403).send({ message: 'forbidden access' })
+      }
+
+      const query = { email: email };
+      const user = await userCollaction.findOne(query);
+      let admin = false;
+      if (user) {
+        admin = user?.role === 'admin';
+      }
+      res.send({ admin });
+    })
+
+    // get admin for admin routs secure
+    app.get('/getCreator/:email', verifyToken, async(req, res) => {
+      const email = req.params.email;
+
+      if (email !== req.decoded.email) {
+        return res.status(403).send({ message: 'forbidden access' })
+      }
+
+      const query = { email: email };
+      const user = await userCollaction.findOne(query);
+      let creator = false;
+      if (user) {
+        creator = user?.role === 'creator';
+      }
+      res.send({ creator });
+    })
+
     // get all contest in a hook and distribute in all place for user ui
     app.get( '/getContests', async(req, res) => {
         const result = await contestCollaction.find().toArray();
         res.send(result)
+    })
+
+    // get advartigement data for home page
+    app.get( '/getAdvartigement', async(req, res) => {
+      const result = await advartigementCollaction.find().toArray();
+      res.send(result);
+    })
+
+    // get contest creator derail for home page
+    app.get( '/getContestCreators', async(req, res) => {
+      const result = await contestCreatorCollaction.find().toArray();
+      res.send(result)
+    })
+
+    app.get( '/getAllCreator', async (req, res) => {
+      const result = await contestCreatorCollaction.find().toArray();
+      res.send(result)
     })
     
     // get one data for diteils in a hook and connact all contest cart
@@ -122,7 +186,7 @@ async function run() {
 
     // get all booking data for admins
     app.get('/getAllBookings', verifyToken, verifyAdmin, async(req, res) => {
-      const result = await bookingsCollaction.find().toArray();
+      const result = await paymentsCollaction.find().toArray();
       res.send(result);
     })
 
@@ -142,27 +206,27 @@ async function run() {
     // get bookings detail for user by user id
     app.get('/getMyBookings', verifyToken, async( req, res )=> {
       const email = req.query.email;
-      const query = { userEmail : email }
-      const result = await bookingsCollaction.find(query).toArray();
+      const query = { email : email }
+      const result = await paymentsCollaction.find(query).toArray();
       res.send(result)
     })
 
-    // get admin for admin routs secure
-    app.get('/getAdmin/:email', verifyToken, async(req, res) => {
-      const email = req.params.email;
+    // get creators contest by thare email
+    app.get( '/getCreatorContest', verifyToken, verifyCreator, async(req, res) => {
+      const creatorEmail = req.query.email;
+      // console.log(creatorEmail); 
 
-      if (email !== req.decoded.email) {
-        return res.status(403).send({ message: 'forbidden access' })
-      }
-
-      const query = { email: email };
-      const user = await userCollaction.findOne(query);
-      let admin = false;
-      if (user) {
-        admin = user?.role === 'admin';
-      }
-      res.send({ admin });
+      const query = { creatorEmail : creatorEmail };
+      const result = await contestCollaction.find(query).toArray();
+      res.send(result)
     })
+
+    // get contest base of top candidate
+    app.get('/getTopContest', async( req, res ) => {
+      const result = await contestCollaction.find().sort({ candidate: -1}).limit(6).toArray();
+      res.send(result)
+    })
+
 
     // store users data in database for admin functonality 
     app.post('/uploadeUser', async(req, res) => {
@@ -171,12 +235,26 @@ async function run() {
       res.send(result)
     })
 
-
-    // uloade contest Booking data
-    app.post('/uploadeBooking', verifyToken, async(req, res) => {
-      const bookinDetails = req.body;
-      const result = await bookingsCollaction.insertOne(bookinDetails);
+    // uploade new constest by creator
+    app.post('/addContestByCreator', verifyToken, verifyCreator, async(req, res) => {
+      const newDetails = req.body;
+      const result = await contestCollaction.insertOne(newDetails);
       res.send(result)
+    })
+
+    // uploade new Creator in creators collaction
+    app.post('/postCreator', verifyToken, verifyCreator, async(req, res) => {
+      const email = req.query.email;
+      const newCreator = req.body;
+
+      const existingCreator = await contestCreatorCollaction.findOne({ email : email});
+      
+      if(existingCreator){
+        res.status(400).json({ message: 'Email already exists in the collection' });
+      }else{
+        const result = await contestCreatorCollaction.insertOne(newCreator)
+        res.send(result)
+      }
     })
 
     // convart user to admin 
@@ -190,12 +268,80 @@ async function run() {
       res.send(result)
     })
 
+    // convart user to creator
+    app.patch('/makeCreator/:id', verifyToken, verifyAdmin, async(req, res) => {
+      const id = req.params.id;
+      const query = { _id : new ObjectId(id)}
+      const updateStateus = {
+        $set: { role: 'creator'}
+      }
+      const result = await userCollaction.updateOne(query, updateStateus);
+      res.send(result)
+    })
+
+    // count booking 
+    app.patch('/countBooking', async( req, res ) => {
+      const id = req.query.id;
+      console.log(id);
+      const query = { _id : new ObjectId(id)};
+
+      const updateCount = {
+        $inc: { candidate: +1}
+      }
+      
+      const result = await contestCollaction.updateOne(query, updateCount)
+      res.send(result)
+    })
+
+    app.patch('/approvedBooking/:id', verifyToken, verifyAdmin, async(req, res) => {
+      const id = req.params.id;
+      const query = { _id : new ObjectId(id)}
+      const updateStateus = {
+        $set: { stateus: 'approved'}
+      }
+      const result = await paymentsCollaction.updateOne(query, updateStateus);
+      res.send(result)
+    })
+
+
+    app.patch('/rejactBookin/:id', verifyToken, verifyAdmin, async(req, res) => {
+      const id = req.params.id;
+      const query = { _id : new ObjectId(id)}
+      const updateStateus = {
+        $set: { stateus: 'Rejacted'}
+      }
+      const result = await paymentsCollaction.updateOne(query, updateStateus);
+      res.send(result)
+    })
+    
+    app.patch('/addInfoPayedContest/:transjectionId', verifyToken, async(req, res) => {
+      const transId = req.params.transjectionId;
+      const bookinDetails = req.body;
+
+      const query = {transactionId: transId}
+      const addInfo = {
+        $set: bookinDetails
+        // new: true
+      }
+      const result = await paymentsCollaction.updateOne(query, addInfo);
+      res.send(result)
+    })
+
     // delet user by only admin
     app.delete('/deletUser/:id', verifyToken, verifyAdmin, async(req, res) => {
       const id = req.params.id;
       const query = { _id : new ObjectId(id)};
       const result = await userCollaction.deleteOne(query);
       res.send(result)
+    })
+
+    // delet contest by contest creator
+    app.delete('/deletContest/:id', verifyToken, verifyCreator, async(req, res) => {
+      const id = req.params.id;
+
+      const query = { _id : new ObjectId(id)};
+      const result = await contestCollaction.deleteOne(query);
+      res.send(result);
     })
 
 
@@ -237,8 +383,8 @@ async function run() {
     })
 
     // Send a ping to confirm a successful connection
-    // await client.db("admin").command({ ping: 1 });
-    // console.log("Pinged your deployment. You successfully connected to MongoDB!");
+    await client.db("admin").command({ ping: 1 });
+    console.log("Pinged your deployment. You successfully connected to MongoDB!");
 } finally {  }
 }
 run().catch(console.dir);
