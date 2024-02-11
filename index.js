@@ -44,6 +44,7 @@ async function run() {
     const paymentsCollaction = client.db('VictoriancDB').collection('payments');
     const advartigementCollaction = client.db('VictoriancDB').collection('advImg');
     const contestCreatorCollaction = client.db('VictoriancDB').collection('contestCreator');
+    const addsCollaction = client.db('VictoriancDB').collection('adds');
     
 
     // -------------------------------
@@ -227,6 +228,49 @@ async function run() {
       res.send(result)
     })
 
+    // get contest type for data analysis "admin"
+    app.get('/getContestType', async( req, res ) => {
+      // const contestType = await contestCollaction.aggregate(  { $group: { _id: '$categories', count: { $sum: 1 } } })
+      try {
+        const contestCategories = await contestCollaction.aggregate([
+          { $group: { categories: '$categories', count: { $sum: 1 } } },
+        ]);
+        
+        console.log( contestCategories);
+        const formattedData = contestCategories.map(({ categories, count }) => ({
+          categories: categories,
+          count,
+        }));
+    
+        res.json(formattedData);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send('Internal Server Error');
+      }
+    })
+
+    // get adds
+    app.get('/getAdds', async (req, res) => {
+
+      try {
+          // Count the total number of documents in the collection
+          const count = await addsCollaction.countDocuments();
+
+          // Generate a random index
+          const randomIndex = Math.floor(Math.random() * count);
+
+          // Find a random document using the generated random index
+          const randomDocument = await addsCollaction.aggregate([
+              { $skip: randomIndex },
+              { $limit: 1 }
+          ]).toArray();
+
+          res.send(randomDocument[0]);
+      } catch (error) {
+          console.error('Error:', error);
+          res.status(500).send({ error: 'Internal Server Error' });
+      }
+  });
 
     // store users data in database for admin functonality 
     app.post('/uploadeUser', async(req, res) => {
@@ -255,6 +299,15 @@ async function run() {
         const result = await contestCreatorCollaction.insertOne(newCreator)
         res.send(result)
       }
+    })
+
+    // uploade adds 
+    app.post('/uploadeAddsData', verifyToken, async(req, res) => {
+      const adds = req.body;
+      console.log(adds);
+
+      const result = await addsCollaction.insertOne(adds);
+      res.send(result)
     })
 
     // convart user to admin 
@@ -303,7 +356,7 @@ async function run() {
       res.send(result)
     })
 
-
+    // rejact bookin by admin
     app.patch('/rejactBookin/:id', verifyToken, verifyAdmin, async(req, res) => {
       const id = req.params.id;
       const query = { _id : new ObjectId(id)}
